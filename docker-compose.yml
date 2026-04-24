@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  jira-mcp:
+    build: .
+    container_name: jira-mcp-server
+    environment:
+      - JIRA_DOMAIN=${JIRA_DOMAIN}
+      - JIRA_EMAIL=${JIRA_EMAIL}
+      - JIRA_API_TOKEN=${JIRA_API_TOKEN}
+      - PORT=3000
+    ports:
+      - "3000:3000"
+    restart: always
