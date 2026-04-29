@@ -165,6 +165,62 @@ function createServer(jira: JiraClient) {
             properties: {},
           },
         },
+        {
+          name: "create_subtask",
+          description: "Tạo một subtask mới cho một issue có sẵn.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              parentKey: {
+                type: "string",
+                description: "Mã của issue cha (ví dụ: 'KAN-1')",
+              },
+              projectKey: {
+                type: "string",
+                description: "Mã dự án (ví dụ: 'KAN')",
+              },
+              summary: {
+                type: "string",
+                description: "Tiêu đề của subtask",
+              },
+              description: {
+                type: "string",
+                description: "Mô tả chi tiết subtask",
+              },
+              issueType: {
+                type: "string",
+                description: "Loại subtask (mặc định là 'Sub-task')",
+              },
+            },
+            required: ["parentKey", "projectKey", "summary"],
+          },
+        },
+        {
+          name: "add_worklog",
+          description: "Ghi nhận thời gian làm việc (worklog) cho một công việc.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              issueKey: {
+                type: "string",
+                description: "Mã công việc (ví dụ: 'KAN-1')",
+              },
+              timeSpent: {
+                type: "string",
+                description: "Thời gian làm việc (ví dụ: '2h', '30m', '1d')",
+              },
+              comment: {
+                type: "string",
+                description: "Ghi chú cho worklog",
+              },
+              started: {
+                type: "string",
+                description: "Thời điểm bắt đầu (định dạng ISO, ví dụ: '2023-01-01T12:00:00.000+0000')",
+              },
+            },
+            required: ["issueKey", "timeSpent"],
+          },
+        },
       ],
     };
   });
@@ -239,6 +295,27 @@ function createServer(jira: JiraClient) {
         }
         case "list_boards": {
           const result = await jira.listBoards();
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        }
+        case "create_subtask": {
+          const { parentKey, projectKey, summary, description, issueType } = z.object({
+            parentKey: z.string(),
+            projectKey: z.string(),
+            summary: z.string(),
+            description: z.string().optional(),
+            issueType: z.string().optional(),
+          }).parse(args);
+          const result = await jira.createSubtask(parentKey, projectKey, summary, description, issueType);
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        }
+        case "add_worklog": {
+          const { issueKey, timeSpent, comment, started } = z.object({
+            issueKey: z.string(),
+            timeSpent: z.string(),
+            comment: z.string().optional(),
+            started: z.string().optional(),
+          }).parse(args);
+          const result = await jira.addWorklog(issueKey, timeSpent, comment, started);
           return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
         }
         default:

@@ -120,4 +120,63 @@ export class JiraClient {
     const response = await this.agileClient.get(`/sprint/${sprintId}/issue`);
     return response.data;
   }
+
+  async createSubtask(parentKey: string, projectKey: string, summary: string, description?: string, issueType = 'Sub-task') {
+    const fields: any = {
+      project: { key: projectKey },
+      parent: { key: parentKey },
+      summary,
+      issuetype: { name: issueType },
+    };
+
+    if (description) {
+      if (this.isCloud) {
+        fields.description = {
+          version: 1,
+          type: 'doc',
+          content: [
+            {
+              type: 'paragraph',
+              content: [{ type: 'text', text: description }],
+            },
+          ],
+        };
+      } else {
+        fields.description = description;
+      }
+    }
+
+    const response = await this.client.post('/issue', { fields });
+    return response.data;
+  }
+
+  async addWorklog(issueKey: string, timeSpent: string, comment?: string, started?: string) {
+    const body: any = {
+      timeSpent,
+    };
+
+    if (comment) {
+      if (this.isCloud) {
+        body.comment = {
+          version: 1,
+          type: 'doc',
+          content: [
+            {
+              type: 'paragraph',
+              content: [{ type: 'text', text: comment }],
+            },
+          ],
+        };
+      } else {
+        body.comment = comment;
+      }
+    }
+
+    if (started) {
+      body.started = started;
+    }
+
+    const response = await this.client.post(`/issue/${issueKey}/worklog`, body);
+    return response.data;
+  }
 }
