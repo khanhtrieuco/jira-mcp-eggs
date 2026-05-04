@@ -221,6 +221,24 @@ function createServer(jira: JiraClient) {
             required: ["issueKey", "timeSpent"],
           },
         },
+        {
+          name: "add_attachment",
+          description: "Đính kèm một tệp tin vào công việc.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              issueKey: {
+                type: "string",
+                description: "Mã công việc (ví dụ: 'KAN-1')",
+              },
+              filePath: {
+                type: "string",
+                description: "Đường dẫn tuyệt đối đến tệp tin cần đính kèm",
+              },
+            },
+            required: ["issueKey", "filePath"],
+          },
+        },
       ],
     };
   });
@@ -316,6 +334,14 @@ function createServer(jira: JiraClient) {
             started: z.string().optional(),
           }).parse(args);
           const result = await jira.addWorklog(issueKey, timeSpent, comment, started);
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        }
+        case "add_attachment": {
+          const { issueKey, filePath } = z.object({
+            issueKey: z.string(),
+            filePath: z.string(),
+          }).parse(args);
+          const result = await jira.addAttachment(issueKey, filePath);
           return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
         }
         default:
