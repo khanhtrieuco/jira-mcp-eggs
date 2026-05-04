@@ -1,5 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import FormData from 'form-data';
 
 // dotenv.config(); // Vô hiệu hóa để tránh dotenv in log "injected env..." ra stdout làm hỏng MCP
 
@@ -177,6 +179,20 @@ export class JiraClient {
     }
 
     const response = await this.client.post(`/issue/${issueKey}/worklog`, body);
+    return response.data;
+  }
+  
+  async addAttachment(issueKey: string, filePath: string) {
+    const form = new FormData();
+    const fileStream = fs.createReadStream(filePath);
+    form.append('file', fileStream);
+
+    const response = await this.client.post(`/issue/${issueKey}/attachments`, form, {
+      headers: {
+        ...form.getHeaders(),
+        'X-Atlassian-Token': 'no-check',
+      },
+    });
     return response.data;
   }
 }
