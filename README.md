@@ -10,6 +10,7 @@
 - Thêm bình luận.
 - Chuyển trạng thái công việc (To Do -> In Progress -> Done).
 - Liệt kê dự án và bảng điều khiển.
+- Đính kèm tệp tin vào công việc.
 
 ## Cài đặt
 
