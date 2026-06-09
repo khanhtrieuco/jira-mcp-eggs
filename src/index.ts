@@ -9,7 +9,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { JiraClient } from "./jira.js";
+import { formatJiraError, JiraClient } from "./jira.js";
 
 const app = express();
 app.use(cors());
@@ -75,7 +75,7 @@ function createServer(jira: JiraClient) {
         },
         {
           name: "create_issue",
-          description: "Tạo một công việc mới trên Jira.",
+          description: "Tạo một công việc mới trên Jira. Nếu Jira báo thiếu field hoặc sai issue type, dùng get_create_issue_metadata để xem cấu hình hợp lệ.",
           inputSchema: {
             type: "object",
             properties: {
@@ -95,8 +95,34 @@ function createServer(jira: JiraClient) {
                 type: "string",
                 description: "Loại công việc (ví dụ: 'Task', 'Bug', 'Story')",
               },
+              issueTypeId: {
+                type: "string",
+                description: "ID loại công việc từ get_create_issue_metadata. Ưu tiên dùng khi tên issue type không ổn định.",
+              },
+              fields: {
+                type: "object",
+                description: "Các field Jira bổ sung theo field id/key, ví dụ {\"customfield_10010\": \"...\"}. Dùng khi metadata báo field bắt buộc.",
+                additionalProperties: true,
+              },
             },
-            required: ["projectKey", "summary", "issueType"],
+            required: ["projectKey", "summary"],
+          },
+        },
+        {
+          name: "get_create_issue_metadata",
+          description: "Lấy cấu hình tạo issue của Jira: các issue type hợp lệ và field bắt buộc/được phép cho project.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              projectKey: {
+                type: "string",
+                description: "Mã dự án Jira (ví dụ: 'KAN'). Nên truyền để metadata gọn và chính xác.",
+              },
+              issueType: {
+                type: "string",
+                description: "Tên hoặc ID loại issue cần xem field. Bỏ trống để liệt kê tất cả issue type của project.",
+              },
+            },
           },
         },
         {
@@ -262,28 +288,26 @@ function createServer(jira: JiraClient) {
           return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
         }
         case "create_issue": {
-          const { projectKey, summary, description, issueType } = z.object({
+          const input = z.object({
             projectKey: z.string(),
             summary: z.string(),
             description: z.string().optional(),
-            issueType: z.string(),
+            issueType: z.string().optional(),
+            issueTypeId: z.string().optional(),
+            fields: z.record(z.string(), z.unknown()).optional(),
+          }).refine((value) => value.issueType || value.issueTypeId, {
+            message: "Cần truyền issueType hoặc issueTypeId. Gọi get_create_issue_metadata trước nếu chưa biết loại hợp lệ.",
           }).parse(args);
-          
-          const fields: any = {
-            project: { key: projectKey },
-            summary,
-            issuetype: { name: issueType },
-          };
-          
-          if (description) {
-            fields.description = {
-              version: 1,
-              type: "doc",
-              content: [{ type: "paragraph", content: [{ type: "text", text: description }] }],
-            };
-          }
-          
-          const result = await jira.createIssue(fields);
+
+          const result = await jira.createIssueFromInput(input);
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        }
+        case "get_create_issue_metadata": {
+          const { projectKey, issueType } = z.object({
+            projectKey: z.string().optional(),
+            issueType: z.string().optional(),
+          }).parse(args);
+          const result = await jira.getCreateIssueMetadata(projectKey, issueType);
           return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
         }
         case "add_comment": {
@@ -350,7 +374,7 @@ function createServer(jira: JiraClient) {
     } catch (error: any) {
       return {
         isError: true,
-        content: [{ type: "text", text: `Lỗi khi thực thi công cụ ${name}: ${error.message}` }],
+        content: [{ type: "text", text: `Lỗi khi thực thi công cụ ${name}: ${formatJiraError(error)}` }],
       };
     }
   });

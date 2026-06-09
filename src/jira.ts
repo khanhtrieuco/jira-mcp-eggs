@@ -1,9 +1,48 @@
-import axios, { AxiosInstance } from 'axios';
-import dotenv from 'dotenv';
+import axios, { AxiosError, AxiosInstance } from 'axios';
 import fs from 'fs';
 import FormData from 'form-data';
 
 // dotenv.config(); // Vô hiệu hóa để tránh dotenv in log "injected env..." ra stdout làm hỏng MCP
+
+export type CreateIssueInput = {
+  projectKey: string;
+  summary: string;
+  description?: string;
+  issueType?: string;
+  issueTypeId?: string;
+  fields?: Record<string, unknown>;
+};
+
+export function formatJiraError(error: unknown): string {
+  if (!axios.isAxiosError(error)) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  const axiosError = error as AxiosError<any>;
+  const status = axiosError.response?.status;
+  const method = axiosError.config?.method?.toUpperCase();
+  const url = axiosError.config?.url;
+  const data = axiosError.response?.data;
+  const parts = [
+    status ? `HTTP ${status}` : undefined,
+    method && url ? `${method} ${url}` : undefined,
+  ].filter(Boolean);
+
+  const details: string[] = [];
+  if (data?.errorMessages?.length) {
+    details.push(`errorMessages: ${data.errorMessages.join('; ')}`);
+  }
+  if (data?.errors && typeof data.errors === 'object') {
+    details.push(`errors: ${JSON.stringify(data.errors)}`);
+  }
+  if (typeof data === 'string' && data.trim()) {
+    details.push(data.trim());
+  } else if (data && details.length === 0) {
+    details.push(JSON.stringify(data));
+  }
+
+  return [parts.join(' '), ...details].filter(Boolean).join(' - ') || axiosError.message;
+}
 
 export class JiraClient {
   private client: AxiosInstance;
@@ -52,6 +91,27 @@ export class JiraClient {
     this.agileClient = axios.create({ baseURL: agileBaseURL, headers });
   }
 
+  private toDescriptionValue(text: string) {
+    if (!this.isCloud) {
+      return text;
+    }
+
+    return {
+      version: 1,
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [{ type: 'text', text }],
+        },
+      ],
+    };
+  }
+
+  private toCommentValue(text: string) {
+    return this.toDescriptionValue(text);
+  }
+
   async searchIssues(jql: string, maxResults = 50) {
     const response = await this.client.get('/search', {
       params: { jql, maxResults },
@@ -69,6 +129,72 @@ export class JiraClient {
     return response.data;
   }
 
+  async createIssueFromInput(input: CreateIssueInput) {
+    if (!input.issueType && !input.issueTypeId) {
+      throw new Error('Cần truyền issueType hoặc issueTypeId. Dùng get_create_issue_metadata để xem các loại issue hợp lệ.');
+    }
+
+    const fields: Record<string, unknown> = {
+      project: { key: input.projectKey },
+      summary: input.summary,
+      issuetype: input.issueTypeId ? { id: input.issueTypeId } : { name: input.issueType },
+      ...(input.fields || {}),
+    };
+
+    if (input.description && fields.description === undefined) {
+      fields.description = this.toDescriptionValue(input.description);
+    }
+
+    const response = await this.client.post('/issue', { fields });
+    return response.data;
+  }
+
+  async getCreateIssueMetadata(projectKey?: string, issueType?: string) {
+    const legacyParams: Record<string, string> = {
+      expand: 'projects.issuetypes.fields',
+    };
+    if (projectKey) {
+      legacyParams.projectKeys = projectKey;
+    }
+    if (issueType) {
+      legacyParams.issuetypeNames = issueType;
+    }
+
+    try {
+      const response = await this.client.get('/issue/createmeta', { params: legacyParams });
+      return response.data;
+    } catch (error) {
+      if (!projectKey || !this.isCloud) {
+        throw error;
+      }
+
+      const issueTypesResponse = await this.client.get(`/issue/createmeta/${projectKey}/issuetypes`);
+      const issueTypes = issueTypesResponse.data?.issueTypes || issueTypesResponse.data?.values || [];
+      const selectedIssueTypes = issueType
+        ? issueTypes.filter((item: any) => item.name === issueType || item.id === issueType)
+        : issueTypes;
+
+      const issueTypesWithFields = await Promise.all(
+        selectedIssueTypes.map(async (item: any) => {
+          const fieldsResponse = await this.client.get(`/issue/createmeta/${projectKey}/issuetypes/${item.id}`);
+          return {
+            ...item,
+            fields: fieldsResponse.data?.fields || fieldsResponse.data?.values || fieldsResponse.data,
+          };
+        })
+      );
+
+      return {
+        projects: [
+          {
+            key: projectKey,
+            issuetypes: issueTypesWithFields,
+          },
+        ],
+      };
+    }
+  }
+
   async updateIssue(issueKey: string, fields: any) {
     const response = await this.client.put(`/issue/${issueKey}`, { fields });
     return response.data;
@@ -79,16 +205,7 @@ export class JiraClient {
     // Jira Server (v2) uses plain text string
     let payload;
     if (this.isCloud) {
-      payload = {
-        version: 1,
-        type: 'doc',
-        content: [
-          {
-            type: 'paragraph',
-            content: [{ type: 'text', text: body }],
-          },
-        ],
-      };
+      payload = this.toCommentValue(body);
     } else {
       payload = body;
     }
@@ -133,16 +250,7 @@ export class JiraClient {
 
     if (description) {
       if (this.isCloud) {
-        fields.description = {
-          version: 1,
-          type: 'doc',
-          content: [
-            {
-              type: 'paragraph',
-              content: [{ type: 'text', text: description }],
-            },
-          ],
-        };
+        fields.description = this.toDescriptionValue(description);
       } else {
         fields.description = description;
       }
@@ -159,16 +267,7 @@ export class JiraClient {
 
     if (comment) {
       if (this.isCloud) {
-        body.comment = {
-          version: 1,
-          type: 'doc',
-          content: [
-            {
-              type: 'paragraph',
-              content: [{ type: 'text', text: comment }],
-            },
-          ],
-        };
+        body.comment = this.toCommentValue(comment);
       } else {
         body.comment = comment;
       }

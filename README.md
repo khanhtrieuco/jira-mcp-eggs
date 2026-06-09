@@ -7,10 +7,28 @@
 - Tìm kiếm issues bằng JQL.
 - Xem chi tiết công việc.
 - Tạo mới công việc (Task, Bug, Story).
+- Xem metadata tạo issue để biết issue type hợp lệ và các field bắt buộc.
 - Thêm bình luận.
 - Chuyển trạng thái công việc (To Do -> In Progress -> Done).
 - Liệt kê dự án và bảng điều khiển.
 - Đính kèm tệp tin vào công việc.
+
+## Gợi ý khi tạo issue
+
+Nếu `create_issue` bị Jira trả lỗi `400`, hãy gọi `get_create_issue_metadata` với `projectKey` trước. Tool này trả về danh sách issue type hợp lệ, field được phép và các field bắt buộc trong project. Sau đó gọi lại `create_issue` bằng `issueTypeId` hoặc `issueType`, kèm `fields` cho các custom field bắt buộc, ví dụ:
+
+```json
+{
+  "projectKey": "AEON",
+  "summary": "Tiêu đề issue",
+  "issueTypeId": "10001",
+  "fields": {
+    "customfield_10010": "Giá trị bắt buộc"
+  }
+}
+```
+
+Khi Jira trả lỗi, MCP sẽ hiển thị thêm `errorMessages` và `errors` từ Jira để AI không phải đoán mò issue type hoặc field bắt buộc.
 
 ## Cài đặt
 
